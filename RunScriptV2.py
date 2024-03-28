@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import sys
 import os
+import csv
+import time
 
 
 class DrowsinessNet(nn.Module):
@@ -160,6 +162,17 @@ def adjust_drowsiness_score(ear, mar, puc, moe):
     drowsiness_score = max(drowsiness_score, 0)
 
 
+# Function to write data to CSV file
+def write_to_csv(data, filename='drowsiness_data.csv'):
+    fieldnames = ['Frame', 'EAR', 'MAR', 'MOE', 'Drowsy', 'Left Eye', 'Right Eye', 'Mouth']
+    is_file_empty = not os.path.isfile(filename) or os.stat(filename).st_size == 0
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if is_file_empty:
+            writer.writeheader()  # Write header only if file is empty
+        writer.writerow(data)
+
+
 def process_frame(frame):
     global frame_buffer, drowsiness_score, frame_count
     frame_count += 1
@@ -182,6 +195,12 @@ def process_frame(frame):
 
         adjust_drowsiness_score(ear, mar, puc, moe)
 
+        # Write data to CSV
+        drowsy = True if drowsiness_score >= 10 else False
+        data = {'Frame': frame_count, 'EAR': ear, 'MAR': mar, 'MOE': moe, 'Drowsy': drowsy,
+                'Left Eye': leftEAR, 'Right Eye': rightEAR, 'Mouth': mar}
+        write_to_csv(data)
+
         for eye, ear_value, label in [(leftEye, leftEAR, '(L)'), (rightEye, rightEAR, '(R)')]:
             x1, y1 = np.min(eye, axis=0)
             x2, y2 = np.max(eye, axis=0)
@@ -196,7 +215,6 @@ def process_frame(frame):
                 text_x = x2 + 20
 
             cv2.putText(frame, text, (text_x, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-
 
         mx1, my1 = np.min(mouth, axis=0)
         mx2, my2 = np.max(mouth, axis=0)
@@ -218,14 +236,16 @@ def process_frame(frame):
 # Camera loop
 def run_camera_loop():
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FPS, 30)
     if not cap.isOpened():
         print("Error: Couldn't open camera.")
     else:
+        start_time = time.time()  # Get the start time
         while True:
             ret, frame = cap.read()
             processed_frame, drowsiness_level = process_frame(frame)
             cv2.imshow('Frame', processed_frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q') or time.time() - start_time > 120:  # Check if 2 minutes have passed
                 break
 
     cap.release()
